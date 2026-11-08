@@ -2,16 +2,16 @@
   "schemaVersion": 1,
   "id": "io.github.erbilozum.nextdns-ip",
   "name": "NextDNS IP Updater",
-  "version": "0.1.0",
-  "description": "Updates the NextDNS linked IP 4 times a day. Bar icon, last-update panel, manual refresh.",
+  "version": "0.2.0",
+  "author": "Erbil Özüm",
+  "license": "MIT",
+  "description": "Keeps your NextDNS linked IP up to date. Bar icon, status panel, manual refresh.",
   "kinds": ["bar-widget"],
   "entryPoints": { "barWidget": "BarWidget.qml" },
   "barWidget": {
     "displayName": "NextDNS IP",
     "category": "Network",
     "allowMultiple": false,
-    "defaultSection": "right",
-    "defaults": {},
-    "schema": []
+    "defaultSection": "right"
   }
 }

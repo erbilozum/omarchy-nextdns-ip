@@ -1,31 +1,64 @@
 import QtQuick
 import Quickshell.Io
-import qs.Commons as Commons
 import qs.Ui
 
 BarWidget {
   id: root
+  moduleName: "io.github.erbilozum.nextdns-ip"
 
-  property real okTs: 0
-  property string status: "none"
-  property bool online: true      // assume online until the first check says otherwise
-  property bool busy: false
-  property bool panelOpen: false
+  // ---- state shown in the bar and the panel ----
+  property real ndOkTs: 0
+  property string ndStatus: "none"
+  property bool ndOnline: true        // assume online until the first check says otherwise
+  property bool ndBusy: false
 
-  readonly property string script:
+  readonly property string ndScript:
     Qt.resolvedUrl("nextdns-ip.sh").toString().replace("file://", "")
 
-  readonly property string lastText:
-    status === "nourl" ? "URL not configured"
-    : okTs > 0 ? Qt.formatDateTime(new Date(okTs * 1000), "yyyy-MM-dd HH:mm")
+  readonly property string ndLastText:
+    ndStatus === "nourl" ? "URL not configured"
+    : ndOkTs > 0 ? Qt.formatDateTime(new Date(ndOkTs * 1000), "yyyy-MM-dd HH:mm")
     : "No update yet"
-  readonly property string errorText:
-    status === "error" ? "Last attempt failed" : ""
 
-  function run(mode) {
+  readonly property string ndIcon:
+    !ndOnline || ndStatus === "error" || ndStatus === "nourl" ? "\uf071" : "\uf132"
+
+  // ---- panel lifecycle (same contract as the built-in clock) ----
+  readonly property bool opened: panelLoader.item
+    ? panelLoader.item.opened === true
+    : false
+  readonly property bool popoutSwitchClosing: panelLoader.item
+    ? panelLoader.item.popoutSwitchClosing === true
+    : false
+
+  function open() {
+    if (panelLoader.item) panelLoader.item.open()
+  }
+
+  function close() {
+    if (panelLoader.item) panelLoader.item.close()
+  }
+
+  function toggle() {
+    if (panelLoader.item) panelLoader.item.toggle()
+  }
+
+  function closeForPopoutSwitch() {
+    if (panelLoader.item) panelLoader.item.closeForPopoutSwitch()
+  }
+
+  function injectPanel() {
+    if (!panelLoader.item) return
+    panelLoader.item.bar = root.bar
+    panelLoader.item.anchorItem = button
+    panelLoader.item.hostWidget = root
+  }
+
+  // ---- update logic ----
+  function ndRun(mode) {
     if (proc.running) return
-    busy = true
-    proc.command = ["bash", script, mode]
+    ndBusy = true
+    proc.command = ["bash", ndScript, mode]
     proc.running = true
   }
 
@@ -35,11 +68,11 @@ BarWidget {
       onStreamFinished: {
         try {
           const s = JSON.parse(text)
-          root.okTs = s.ok_ts
-          root.status = s.status
-          root.online = s.online === 1
+          root.ndOkTs = s.ok_ts
+          root.ndStatus = s.status
+          root.ndOnline = s.online === 1
         } catch (e) {}
-        root.busy = false
+        root.ndBusy = false
       }
     }
   }
@@ -50,43 +83,45 @@ BarWidget {
     running: true
     repeat: true
     triggeredOnStart: true
-    onTriggered: root.run("tick")
+    onTriggered: root.ndRun("tick")
   }
 
   // While the panel is open, re-check connectivity every 3 seconds
   Timer {
     interval: 3000
-    running: root.panelOpen
+    running: root.opened
     repeat: true
-    onTriggered: root.run("check")
+    onTriggered: root.ndRun("check")
   }
 
-  onPanelOpenChanged: if (panelOpen) run("check")
+  onOpenedChanged: if (opened) ndRun("check")
 
-  implicitWidth: icon.implicitWidth
-  implicitHeight: icon.implicitHeight
+  implicitWidth: button.implicitWidth
+  implicitHeight: button.implicitHeight
 
-  Text {
-    id: icon
-    text: !root.online || root.status === "error" || root.status === "nourl" ? "\uf071" : "\uf132"
-    color: Commons.Color.foreground
-    opacity: root.online && root.status === "ok" ? 1.0 : 0.6
-  }
-
-  MouseArea {
-    anchors.fill: parent
-    onClicked: root.panelOpen = !root.panelOpen
-  }
+  onBarChanged: injectPanel()
 
   Loader {
-    active: root.panelOpen
-    source: "Panel.qml"
+    id: panelLoader
+    active: true
+    source: Qt.resolvedUrl("Panel.qml")
+    visible: false
     onLoaded: {
-      item.lastText = Qt.binding(() => root.lastText)
-      item.errorText = Qt.binding(() => root.errorText)
-      item.busy = Qt.binding(() => root.busy)
-      item.online = Qt.binding(() => root.online)
-      item.refreshRequested.connect(() => root.run("force"))
+      root.injectPanel()
+      Qt.callLater(root.injectPanel)
+    }
+  }
+
+  WidgetButton {
+    id: button
+    anchors.fill: parent
+    bar: root.bar
+    text: root.ndIcon
+    tooltipText: root.ndOnline
+      ? "NextDNS IP · " + root.ndLastText
+      : "NextDNS IP · No internet connection"
+    onPressed: function(buttonCode) {
+      if (buttonCode === Qt.LeftButton) root.toggle()
     }
   }
 }
