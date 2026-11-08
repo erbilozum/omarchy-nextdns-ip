@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Usage: nextdns-ip.sh tick|check|force|status  -> prints one line of JSON
+# Usage: nextdns-ip.sh tick|check|force|seturl <url>|status  -> prints one line of JSON
 set -u
 
 INTERVAL=21600   # max seconds between successful updates (6h = 4x/day)
@@ -9,6 +9,7 @@ RESUME_GAP=180   # a gap this long between ticks means suspend/resume
 CONF="${XDG_CONFIG_HOME:-$HOME/.config}/nextdns-ip/url"
 DIR="${XDG_STATE_HOME:-$HOME/.local/state}/nextdns-ip"
 STATE="$DIR/state.json"
+RESULT=""
 mkdir -p "$DIR"
 
 now=$(date +%s)
@@ -20,7 +21,13 @@ if [[ -f $STATE ]]; then
   eval "$(jq -r '@sh "ts=\(.ts // 0) ok_ts=\(.ok_ts // 0) status=\(.status // "none") s_boot=\(.boot_id // "") last_tick=\(.last_tick // 0) online=\(.online // 0) pending=\(.pending // 0)"' "$STATE" 2>/dev/null)"
 fi
 
-emit() { [[ -f $STATE ]] && cat "$STATE" || echo '{"ts":0,"ok_ts":0,"status":"none","online":0}'; }
+# Print the saved state plus whether a URL is configured and the last action result
+emit() {
+  local base='{"ts":0,"ok_ts":0,"status":"none","online":0}' conf=0
+  [[ -f $STATE ]] && base=$(cat "$STATE")
+  [[ -s $CONF ]] && conf=1
+  jq -c --argjson c "$conf" --arg r "${RESULT:-}" '. + {configured:$c, result:$r}' <<< "$base"
+}
 
 # "Online" = a default route exists. A failed request is handled by retry.
 check_online() { if ip route show default 2>/dev/null | grep -q .; then online=1; else online=0; fi; }
@@ -78,6 +85,24 @@ case "${1:-status}" in
       fi
     fi
     save
+    ;;
+  seturl)
+    new=$(printf '%s' "${2:-}" | tr -d '[:space:]')
+    if [[ $new =~ ^https://link-ip\.nextdns\.io/[A-Za-z0-9_-]+/[A-Za-z0-9_-]+$ ]]; then
+      mkdir -p "$(dirname "$CONF")"
+      ( umask 077; printf '%s\n' "$new" > "$CONF" )
+      chmod 600 "$CONF"
+      RESULT=saved
+      observe
+      if (( online == 1 )); then
+        update
+      else
+        status=none; pending=1
+      fi
+      save
+    else
+      RESULT=invalid
+    fi
     ;;
 esac
 emit

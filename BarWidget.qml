@@ -11,6 +11,9 @@ BarWidget {
   property string ndStatus: "none"
   property bool ndOnline: true        // assume online until the first check says otherwise
   property bool ndBusy: false
+  property bool ndConfigured: false
+  property string ndLastResult: ""    // "saved" | "invalid" after a settings save
+  property var ndQueued: null
 
   readonly property string ndScript:
     Qt.resolvedUrl("nextdns-ip.sh").toString().replace("file://", "")
@@ -55,11 +58,22 @@ BarWidget {
   }
 
   // ---- update logic ----
-  function ndRun(mode) {
-    if (proc.running) return
+  function ndRun(mode, arg) {
+    if (proc.running) {
+      // keep user actions that arrive while another run is busy
+      if (mode === "force" || mode === "seturl") ndQueued = { mode: mode, arg: arg }
+      return
+    }
     ndBusy = true
-    proc.command = ["bash", ndScript, mode]
+    proc.command = arg !== undefined
+      ? ["bash", ndScript, mode, arg]
+      : ["bash", ndScript, mode]
     proc.running = true
+  }
+
+  function ndSaveUrl(url) {
+    ndLastResult = ""
+    ndRun("seturl", url)
   }
 
   Process {
@@ -71,8 +85,18 @@ BarWidget {
           root.ndOkTs = s.ok_ts
           root.ndStatus = s.status
           root.ndOnline = s.online === 1
+          root.ndConfigured = s.configured === 1
+          if (s.result) root.ndLastResult = s.result
         } catch (e) {}
         root.ndBusy = false
+      }
+    }
+    onExited: function(exitCode, exitStatus) {
+      root.ndBusy = false
+      if (root.ndQueued) {
+        const q = root.ndQueued
+        root.ndQueued = null
+        root.ndRun(q.mode, q.arg)
       }
     }
   }
