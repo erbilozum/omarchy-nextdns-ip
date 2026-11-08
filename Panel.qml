@@ -20,7 +20,9 @@ Panel {
   readonly property bool ndOnline: hostWidget ? hostWidget.ndOnline : true
   readonly property bool ndBusy: hostWidget ? hostWidget.ndBusy : false
   readonly property bool ndConfigured: hostWidget ? hostWidget.ndConfigured : false
+  readonly property string ndUrlHint: hostWidget ? hostWidget.ndUrlHint : ""
   readonly property string ndStatus: hostWidget ? hostWidget.ndStatus : "none"
+  readonly property string ndErr: hostWidget ? hostWidget.ndErr : ""
   readonly property string ndLastText: hostWidget ? hostWidget.ndLastText : ""
   readonly property string ndIcon: hostWidget ? hostWidget.ndIcon : "\uf132"
   readonly property string ndExtIp: hostWidget ? hostWidget.ndExtIp : ""
@@ -32,14 +34,14 @@ Panel {
 
   readonly property string ndStatusText:
     ndStatus === "ok" ? "Up to date"
-    : ndStatus === "error" ? "Last attempt failed"
+    : ndStatus === "error" ? "Failed" + (ndErr !== "" ? " (" + ndErr + ")" : "")
     : ndStatus === "nourl" ? "Not configured"
     : "Pending"
 
   readonly property string feedbackText:
     !feedbackShown ? ""
     : ndLastResult === "invalid" ? "That doesn't look like a NextDNS linked IP URL. Expected https://link-ip.nextdns.io/<id>/<token>"
-    : ndLastResult === "rejected" ? "NextDNS rejected this URL (HTTP " + ndLastDetail + "). Check the link and try again."
+    : ndLastResult === "rejected" ? "NextDNS did not accept this URL (" + ndLastDetail + "). Check the link and try again."
     : ndLastResult === "unreachable" ? "Couldn't reach NextDNS. Check your connection and try again."
     : ndLastResult === "offline" ? "No internet connection. Connect and try again."
     : ndLastResult === "saved" ? "Saved"
@@ -418,7 +420,9 @@ Panel {
         }
         InfoRow {
           label: "URL"
-          value: root.ndConfigured ? "Configured" : "Not set"
+          value: root.ndConfigured
+            ? "Configured" + (root.ndUrlHint !== "" ? " (" + root.ndUrlHint + ")" : "")
+            : "Not set"
           fg: root.barForeground
           fontFamily: root.uiFont
         }
@@ -515,6 +519,15 @@ Panel {
             fg: root.barForeground
             fontFamily: root.uiFont
             onActivated: root.saveUrl()
+          }
+
+          PillButton {
+            visible: root.ndConfigured
+            label: "Remove saved URL"
+            active: !root.ndBusy
+            fg: root.barForeground
+            fontFamily: root.uiFont
+            onActivated: if (root.hostWidget) root.hostWidget.ndClearUrl()
           }
 
           Rectangle {

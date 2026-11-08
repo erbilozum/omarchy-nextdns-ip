@@ -9,9 +9,11 @@ BarWidget {
   // ---- state shown in the bar and the panel ----
   property real ndOkTs: 0
   property string ndStatus: "none"
+  property string ndErr: ""
   property bool ndOnline: true        // assume online until the first check says otherwise
   property bool ndBusy: false
   property bool ndConfigured: false
+  property string ndUrlHint: ""
   property string ndExtIp: ""
   property int ndIntervalH: 6
   property string ndLastResult: ""    // result of the last URL save
@@ -64,7 +66,7 @@ BarWidget {
   function ndRun(mode, arg) {
     if (proc.running) {
       // keep user actions that arrive while another run is busy
-      if (mode === "force" || mode === "seturl" || mode === "setinterval")
+      if (mode === "force" || mode === "seturl" || mode === "setinterval" || mode === "clearurl")
         ndQueued = { mode: mode, arg: arg }
       return
     }
@@ -81,6 +83,11 @@ BarWidget {
     ndRun("seturl", url)
   }
 
+  function ndClearUrl() {
+    ndLastResult = ""
+    ndRun("clearurl")
+  }
+
   function ndSetInterval(hours) {
     ndRun("setinterval", String(hours))
   }
@@ -93,8 +100,10 @@ BarWidget {
           const s = JSON.parse(text)
           root.ndOkTs = s.ok_ts
           root.ndStatus = s.status
+          root.ndErr = s.err || ""
           root.ndOnline = s.online === 1
           root.ndConfigured = s.configured === 1
+          root.ndUrlHint = s.url_hint || ""
           root.ndExtIp = s.ext_ip || ""
           if (s.interval_h) root.ndIntervalH = s.interval_h
           if (s.result && s.result.indexOf("interval") !== 0) {
