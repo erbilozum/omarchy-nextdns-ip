@@ -12,7 +12,10 @@ BarWidget {
   property bool ndOnline: true        // assume online until the first check says otherwise
   property bool ndBusy: false
   property bool ndConfigured: false
-  property string ndLastResult: ""    // "saved" | "invalid" after a settings save
+  property string ndExtIp: ""
+  property int ndIntervalH: 6
+  property string ndLastResult: ""    // result of the last URL save
+  property string ndLastDetail: ""
   property var ndQueued: null
 
   readonly property string ndScript:
@@ -24,7 +27,7 @@ BarWidget {
     : "No update yet"
 
   readonly property string ndIcon:
-    !ndOnline || ndStatus === "error" || ndStatus === "nourl" ? "\uf071" : "\uf132"
+    !ndOnline || !ndConfigured || ndStatus === "error" || ndStatus === "nourl" ? "\uf071" : "\uf132"
 
   // ---- panel lifecycle (same contract as the built-in clock) ----
   readonly property bool opened: panelLoader.item
@@ -61,7 +64,8 @@ BarWidget {
   function ndRun(mode, arg) {
     if (proc.running) {
       // keep user actions that arrive while another run is busy
-      if (mode === "force" || mode === "seturl") ndQueued = { mode: mode, arg: arg }
+      if (mode === "force" || mode === "seturl" || mode === "setinterval")
+        ndQueued = { mode: mode, arg: arg }
       return
     }
     ndBusy = true
@@ -73,7 +77,12 @@ BarWidget {
 
   function ndSaveUrl(url) {
     ndLastResult = ""
+    ndLastDetail = ""
     ndRun("seturl", url)
+  }
+
+  function ndSetInterval(hours) {
+    ndRun("setinterval", String(hours))
   }
 
   Process {
@@ -86,7 +95,12 @@ BarWidget {
           root.ndStatus = s.status
           root.ndOnline = s.online === 1
           root.ndConfigured = s.configured === 1
-          if (s.result) root.ndLastResult = s.result
+          root.ndExtIp = s.ext_ip || ""
+          if (s.interval_h) root.ndIntervalH = s.interval_h
+          if (s.result && s.result.indexOf("interval") !== 0) {
+            root.ndLastResult = s.result
+            root.ndLastDetail = s.detail || ""
+          }
         } catch (e) {}
         root.ndBusy = false
       }
@@ -118,7 +132,8 @@ BarWidget {
     onTriggered: root.ndRun("check")
   }
 
-  onOpenedChanged: if (opened) ndRun("check")
+  // Opening the panel also refreshes the external IP
+  onOpenedChanged: if (opened) ndRun("ip")
 
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
@@ -141,9 +156,11 @@ BarWidget {
     anchors.fill: parent
     bar: root.bar
     text: root.ndIcon
-    tooltipText: root.ndOnline
-      ? "NextDNS IP · " + root.ndLastText
-      : "NextDNS IP · No internet connection"
+    tooltipText: !root.ndConfigured
+      ? "NextDNS IP · Setup needed, click to enter your URL"
+      : root.ndOnline
+        ? "NextDNS IP · " + root.ndLastText
+        : "NextDNS IP · No internet connection"
     onPressed: function(buttonCode) {
       if (buttonCode === Qt.LeftButton) root.toggle()
     }

@@ -1,5 +1,6 @@
 import QtQuick
 import Quickshell
+import Quickshell.Io
 import qs.Commons
 import qs.Ui
 
@@ -22,7 +23,10 @@ Panel {
   readonly property string ndStatus: hostWidget ? hostWidget.ndStatus : "none"
   readonly property string ndLastText: hostWidget ? hostWidget.ndLastText : ""
   readonly property string ndIcon: hostWidget ? hostWidget.ndIcon : "\uf132"
+  readonly property string ndExtIp: hostWidget ? hostWidget.ndExtIp : ""
+  readonly property int ndIntervalH: hostWidget ? hostWidget.ndIntervalH : 6
   readonly property string ndLastResult: hostWidget ? hostWidget.ndLastResult : ""
+  readonly property string ndLastDetail: hostWidget ? hostWidget.ndLastDetail : ""
   readonly property string uiFont: root.bar ? root.bar.fontFamily : Style.font.family
   readonly property bool settingsVisible: showSettings || !ndConfigured
 
@@ -34,9 +38,12 @@ Panel {
 
   readonly property string feedbackText:
     !feedbackShown ? ""
-    : ndLastResult === "invalid" ? "Invalid URL. Expected https://link-ip.nextdns.io/<id>/<token>"
+    : ndLastResult === "invalid" ? "That doesn't look like a NextDNS linked IP URL. Expected https://link-ip.nextdns.io/<id>/<token>"
+    : ndLastResult === "rejected" ? "NextDNS rejected this URL (HTTP " + ndLastDetail + "). Check the link and try again."
+    : ndLastResult === "unreachable" ? "Couldn't reach NextDNS. Check your connection and try again."
+    : ndLastResult === "offline" ? "No internet connection. Connect and try again."
     : ndLastResult === "saved" ? "Saved"
-    : "Saving…"
+    : "Verifying…"
 
   function open() {
     root.controller.show()
@@ -66,6 +73,14 @@ Panel {
       showSettings = false
       feedbackShown = false
     }
+  }
+
+  // Keep the slider in sync with the saved value unless the user is dragging it
+  onNdIntervalHChanged: if (!hoursSlider.dragging) hoursSlider.value = ndIntervalH
+
+  Process {
+    id: opener
+    command: ["xdg-open", "https://my.nextdns.io"]
   }
 
   // ---- small reusable pieces ----
@@ -176,6 +191,62 @@ Panel {
     }
   }
 
+  // Draggable 1-24 hour slider, snaps to whole hours
+  component HourSlider: Item {
+    id: sl
+    property int value: 6
+    property int from: 1
+    property int to: 24
+    property color fg: "white"
+    readonly property bool dragging: dragArea.pressed
+    signal committed(int hours)
+
+    width: parent ? parent.width : 0
+    height: Style.space(24)
+
+    readonly property real frac: (value - from) / (to - from)
+
+    Rectangle {
+      id: track
+      anchors.verticalCenter: parent.verticalCenter
+      width: parent.width
+      height: Style.space(4)
+      radius: height / 2
+      color: Qt.rgba(sl.fg.r, sl.fg.g, sl.fg.b, 0.2)
+    }
+    Rectangle {
+      anchors.verticalCenter: parent.verticalCenter
+      width: handle.x + handle.width / 2
+      height: track.height
+      radius: height / 2
+      color: Qt.rgba(sl.fg.r, sl.fg.g, sl.fg.b, 0.6)
+    }
+    Rectangle {
+      id: handle
+      width: Style.space(16)
+      height: width
+      radius: width / 2
+      anchors.verticalCenter: parent.verticalCenter
+      x: sl.frac * (sl.width - width)
+      color: sl.fg
+    }
+
+    MouseArea {
+      id: dragArea
+      anchors.fill: parent
+      cursorShape: Qt.PointingHandCursor
+
+      function setFrom(mx) {
+        const f = Math.max(0, Math.min(1, (mx - handle.width / 2) / (sl.width - handle.width)))
+        sl.value = Math.round(sl.from + f * (sl.to - sl.from))
+      }
+
+      onPressed: function(mouse) { setFrom(mouse.x) }
+      onPositionChanged: function(mouse) { if (pressed) setFrom(mouse.x) }
+      onReleased: sl.committed(sl.value)
+    }
+  }
+
   KeyboardPanel {
     id: panel
     anchorItem: root.anchorItem
@@ -266,6 +337,47 @@ Panel {
           }
         }
 
+        // ---- first-run setup guide ----
+        Column {
+          visible: !root.ndConfigured
+          width: parent.width
+          spacing: Style.space(8)
+
+          Rectangle {
+            width: parent.width
+            height: setupText.implicitHeight + Style.space(20)
+            radius: Style.space(4)
+            color: "transparent"
+            border.width: 1
+            border.color: Qt.rgba(root.barForeground.r, root.barForeground.g, root.barForeground.b, 0.5)
+
+            Text {
+              id: setupText
+              anchors.fill: parent
+              anchors.margins: Style.space(10)
+              wrapMode: Text.WordWrap
+              color: root.barForeground
+              font.family: root.uiFont
+              font.pixelSize: Style.space(12)
+              lineHeight: 1.2
+              text: "Setup required\n\n"
+                + "This plugin keeps your NextDNS linked IP up to date. It only works with a "
+                + "NextDNS account and a configuration (profile) you have already created.\n\n"
+                + "1. Sign in at my.nextdns.io\n"
+                + "2. Open your configuration, then the Setup tab\n"
+                + "3. Under \"Linked IP\", copy the link\n"
+                + "4. Paste it below and press Save"
+            }
+          }
+
+          PillButton {
+            label: "Open my.nextdns.io"
+            fg: root.barForeground
+            fontFamily: root.uiFont
+            onActivated: opener.running = true
+          }
+        }
+
         Rectangle {
           width: parent.width
           height: 1
@@ -283,6 +395,18 @@ Panel {
         InfoRow {
           label: "Last update"
           value: root.ndLastText
+          fg: root.barForeground
+          fontFamily: root.uiFont
+        }
+        InfoRow {
+          label: "External IP"
+          value: root.ndExtIp !== "" ? root.ndExtIp : "Unknown"
+          fg: root.barForeground
+          fontFamily: root.uiFont
+        }
+        InfoRow {
+          label: "Refresh every"
+          value: root.ndIntervalH + (root.ndIntervalH === 1 ? " hour" : " hours")
           fg: root.barForeground
           fontFamily: root.uiFont
         }
@@ -317,14 +441,14 @@ Panel {
         }
 
         PillButton {
-          label: root.ndBusy ? "Updating…" : "Refresh now"
+          label: root.ndBusy ? "Working…" : "Refresh now"
           active: root.ndOnline && !root.ndBusy && root.ndConfigured
           fg: root.barForeground
           fontFamily: root.uiFont
           onActivated: if (root.hostWidget) root.hostWidget.ndRun("force")
         }
 
-        // ---- settings (only a button once a URL exists) ----
+        // ---- settings (just a button once a URL exists) ----
         PillButton {
           visible: root.ndConfigured && !root.showSettings
           label: "Settings"
@@ -366,7 +490,7 @@ Panel {
 
           Text {
             width: parent.width
-            text: "Enter your own linked IP URL. Find it in NextDNS → Setup → Linked IP."
+            text: "The link is checked with NextDNS before it is saved."
             color: root.barForeground
             opacity: 0.6
             wrapMode: Text.WordWrap
@@ -386,16 +510,64 @@ Panel {
           }
 
           PillButton {
-            label: "Save"
-            active: urlField.text.trim().length > 0
+            label: root.ndBusy && root.feedbackShown ? "Verifying…" : "Verify and save"
+            active: urlField.text.trim().length > 0 && !root.ndBusy
             fg: root.barForeground
             fontFamily: root.uiFont
             onActivated: root.saveUrl()
           }
 
+          Rectangle {
+            width: parent.width
+            height: 1
+            color: root.barForeground
+            opacity: 0.2
+          }
+
+          Text {
+            text: "REFRESH EVERY " + hoursSlider.value + (hoursSlider.value === 1 ? " HOUR" : " HOURS")
+            color: root.barForeground
+            opacity: 0.6
+            font.family: root.uiFont
+            font.pixelSize: Style.space(10)
+            font.letterSpacing: 1
+          }
+
+          HourSlider {
+            id: hoursSlider
+            fg: root.barForeground
+            value: 6
+            onCommitted: function(hours) {
+              if (root.hostWidget) root.hostWidget.ndSetInterval(hours)
+            }
+          }
+
+          Item {
+            width: parent.width
+            height: rangeMin.implicitHeight
+
+            Text {
+              id: rangeMin
+              anchors.left: parent.left
+              text: "1 h"
+              color: root.barForeground
+              opacity: 0.5
+              font.family: root.uiFont
+              font.pixelSize: Style.space(10)
+            }
+            Text {
+              anchors.right: parent.right
+              text: "24 h"
+              color: root.barForeground
+              opacity: 0.5
+              font.family: root.uiFont
+              font.pixelSize: Style.space(10)
+            }
+          }
+
           PillButton {
             visible: root.ndConfigured
-            label: "Cancel"
+            label: "Close settings"
             fg: root.barForeground
             fontFamily: root.uiFont
             onActivated: {
