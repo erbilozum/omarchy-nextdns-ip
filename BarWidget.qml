@@ -11,13 +11,15 @@ BarWidget {
   property string ndStatus: "none"
   property string ndErr: ""
   property bool ndOnline: true        // assume online until the first check says otherwise
-  property bool ndBusy: false
+  property bool ndBusy: false         // true only while a user-triggered action runs
   property bool ndConfigured: false
   property string ndUrlHint: ""
   property string ndExtIp: ""
   property int ndIntervalH: 6
+  property real ndIpTs: 0
   property string ndLastResult: ""    // result of the last URL save
   property string ndLastDetail: ""
+  property string ndMode: ""          // mode of the process that is running now
   property var ndQueued: null
 
   readonly property string ndScript:
@@ -63,14 +65,23 @@ BarWidget {
   }
 
   // ---- update logic ----
+
+  // Actions the user starts by hand; only these make the panel show "Working…"
+  function ndIsUser(mode) {
+    return mode === "force" || mode === "seturl" || mode === "clearurl"
+  }
+
   function ndRun(mode, arg) {
+    if (ndIsUser(mode)) ndBusy = true
+
     if (proc.running) {
       // keep user actions that arrive while another run is busy
-      if (mode === "force" || mode === "seturl" || mode === "setinterval" || mode === "clearurl")
+      if (ndIsUser(mode) || mode === "setinterval")
         ndQueued = { mode: mode, arg: arg }
       return
     }
-    ndBusy = true
+
+    ndMode = mode
     proc.command = arg !== undefined
       ? ["bash", ndScript, mode, arg]
       : ["bash", ndScript, mode]
@@ -105,26 +116,28 @@ BarWidget {
           root.ndConfigured = s.configured === 1
           root.ndUrlHint = s.url_hint || ""
           root.ndExtIp = s.ext_ip || ""
+          root.ndIpTs = s.ip_ts || 0
           if (s.interval_h) root.ndIntervalH = s.interval_h
           if (s.result && s.result.indexOf("interval") !== 0) {
             root.ndLastResult = s.result
             root.ndLastDetail = s.detail || ""
           }
         } catch (e) {}
-        root.ndBusy = false
+        if (root.ndIsUser(root.ndMode) && !root.ndQueued) root.ndBusy = false
       }
     }
     onExited: function(exitCode, exitStatus) {
-      root.ndBusy = false
       if (root.ndQueued) {
         const q = root.ndQueued
         root.ndQueued = null
         root.ndRun(q.mode, q.arg)
+      } else if (root.ndIsUser(root.ndMode)) {
+        root.ndBusy = false
       }
     }
   }
 
-  // Check the schedule every minute; the script decides whether to update
+  // Check the schedule every minute; the script decides what to do
   Timer {
     interval: 60000
     running: true

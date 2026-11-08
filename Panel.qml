@@ -27,6 +27,9 @@ Panel {
   readonly property string ndIcon: hostWidget ? hostWidget.ndIcon : "\uf132"
   readonly property string ndExtIp: hostWidget ? hostWidget.ndExtIp : ""
   readonly property int ndIntervalH: hostWidget ? hostWidget.ndIntervalH : 6
+  readonly property real ndIpTs: hostWidget ? hostWidget.ndIpTs : 0
+  readonly property string ndIpText:
+    ndIpTs > 0 ? Qt.formatDateTime(new Date(ndIpTs * 1000), "yyyy-MM-dd HH:mm") : "Not yet"
   readonly property string ndLastResult: hostWidget ? hostWidget.ndLastResult : ""
   readonly property string ndLastDetail: hostWidget ? hostWidget.ndLastDetail : ""
   readonly property string uiFont: root.bar ? root.bar.fontFamily : Style.font.family
@@ -407,7 +410,13 @@ Panel {
           fontFamily: root.uiFont
         }
         InfoRow {
-          label: "Refresh every"
+          label: "Last IP check"
+          value: root.ndIpText
+          fg: root.barForeground
+          fontFamily: root.uiFont
+        }
+        InfoRow {
+          label: "Check IP every"
           value: root.ndIntervalH + (root.ndIntervalH === 1 ? " hour" : " hours")
           fg: root.barForeground
           fontFamily: root.uiFont
@@ -538,7 +547,7 @@ Panel {
           }
 
           Text {
-            text: "REFRESH EVERY " + hoursSlider.value + (hoursSlider.value === 1 ? " HOUR" : " HOURS")
+            text: "CHECK IP EVERY " + hoursSlider.value + (hoursSlider.value === 1 ? " HOUR" : " HOURS")
             color: root.barForeground
             opacity: 0.6
             font.family: root.uiFont
@@ -576,6 +585,16 @@ Panel {
               font.family: root.uiFont
               font.pixelSize: Style.space(10)
             }
+          }
+
+          Text {
+            width: parent.width
+            text: "NextDNS is contacted only when your IP address has changed. The IP is also checked after boot, reconnect and resume."
+            color: root.barForeground
+            opacity: 0.6
+            wrapMode: Text.WordWrap
+            font.family: root.uiFont
+            font.pixelSize: Style.space(11)
           }
 
           PillButton {
